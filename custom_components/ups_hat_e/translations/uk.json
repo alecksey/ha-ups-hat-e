@@ -1,0 +1,121 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Waveshare UPS HAT (E)",
+        "description": "Підключення до UPS HAT (E) через шину I2C. Типова адреса — 0x2D. Переконайтеся, що I2C увімкнено, а контейнер Home Assistant має доступ до /dev/i2c-{bus}.",
+        "data": {
+          "name": "Назва пристрою",
+          "i2c_bus": "Номер шини I2C",
+          "i2c_address": "Адреса I2C (напр. 0x2D)",
+          "battery_type": "Тип батареї",
+          "battery_capacity_mah": "Ємність на елемент (мА·год)",
+          "cells_count": "Кількість елементів",
+          "low_battery_threshold": "Поріг низького заряду (%)",
+          "scan_interval": "Інтервал опитування (секунди)",
+          "use_mock": "Використовувати симульовані дані (розробка)"
+        }
+      }
+    },
+    "error": {
+      "i2c_bus_not_found": "Файл шини I2C не знайдено. Чи прокинуто /dev/i2c-N до контейнера Home Assistant?",
+      "permission_denied": "Немає прав на відкриття шини I2C. Додайте користувача до групи 'i2c' або запускайте контейнер з --device=/dev/i2c-N та --privileged (або через офіційний i2c-аддон).",
+      "device_not_responding": "Немає відповіді від UPS HAT (E) на цій адресі. Перевірте підключення і живлення модуля.",
+      "invalid_address": "Невірна I2C-адреса. Введіть hex-значення, напр. 0x2D.",
+      "unknown": "Невідома помилка — перевірте журнали Home Assistant."
+    },
+    "abort": {
+      "already_configured": "Цей UPS HAT (E) вже налаштовано."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Налаштування UPS HAT (E)",
+        "data": {
+          "battery_type": "Тип батареї",
+          "battery_capacity_mah": "Ємність на елемент (мА·год)",
+          "cells_count": "Кількість елементів",
+          "low_battery_threshold": "Поріг низького заряду (%)",
+          "scan_interval": "Інтервал опитування (секунди)",
+          "use_mock": "Використовувати симульовані дані (розробка)"
+        }
+      }
+    },
+    "error": {
+      "invalid_value": "Некоректне значення."
+    }
+  },
+  "selector": {
+    "battery_type": {
+      "options": {
+        "21700": "21700 (5000 мА·год)",
+        "18650": "18650 (3000 мА·год)",
+        "custom": "Власна"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery_percent": { "name": "Заряд батареї" },
+      "battery_voltage": { "name": "Напруга батареї" },
+      "battery_current": { "name": "Струм батареї" },
+      "battery_power": { "name": "Потужність батареї" },
+      "remaining_capacity_wh": { "name": "Залишок ємності" },
+      "remaining_capacity_mah": { "name": "Залишок ємності (мА·год)" },
+      "runtime_min": { "name": "Час до розряду" },
+      "time_to_full_min": { "name": "Час до повного заряду" },
+      "vbus_voltage": { "name": "Напруга USB-C" },
+      "vbus_current": { "name": "Струм USB-C" },
+      "vbus_power": { "name": "Потужність USB-C" },
+      "cell1_voltage": { "name": "Напруга елемента 1" },
+      "cell2_voltage": { "name": "Напруга елемента 2" },
+      "cell3_voltage": { "name": "Напруга елемента 3" },
+      "cell4_voltage": { "name": "Напруга елемента 4" },
+      "status": {
+        "name": "Стан",
+        "state": {
+          "idle": "Очікування",
+          "charging": "Заряджання",
+          "fast_charging": "Швидке заряджання",
+          "discharging": "Розряджання",
+          "full": "Повний заряд"
+        }
+      },
+      "charge_state": {
+        "name": "Стадія заряду",
+        "state": {
+          "standby": "Очікування",
+          "trickle": "Підтримуючий заряд",
+          "constant_current": "Постійний струм",
+          "constant_voltage": "Постійна напруга",
+          "pending": "Очікує",
+          "full": "Повний заряд",
+          "timeout": "Тайм-аут",
+          "unknown": "Невідомо"
+        }
+      },
+      "firmware_revision": { "name": "Версія прошивки" }
+    },
+    "binary_sensor": {
+      "online": { "name": "Мережеве живлення" },
+      "charging": { "name": "Заряджання" },
+      "fast_charging": { "name": "USB-C PD" },
+      "low_battery": { "name": "Низький заряд" },
+      "bq4050_ok": { "name": "Несправність BQ4050" },
+      "ip2368_ok": { "name": "Несправність IP2368" }
+    }
+  },
+  "services": {
+    "shutdown": {
+      "name": "Вимкнути UPS",
+      "description": "Надіслати команду вимкнення на UPS. Через 30 секунд UPS відключить вихід 5В.",
+      "fields": {
+        "entry_id": {
+          "name": "ID config-запису",
+          "description": "ID конфігураційного запису UPS HAT (E)."
+        }
+      }
+    }
+  }
+}

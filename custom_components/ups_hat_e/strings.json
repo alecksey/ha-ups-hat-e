@@ -1,0 +1,121 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Waveshare UPS HAT (E)",
+        "description": "Connect to the UPS HAT (E) via I2C. The default address is 0x2D. Make sure the I2C interface is enabled and the Home Assistant container has access to /dev/i2c-{bus}.",
+        "data": {
+          "name": "Device name",
+          "i2c_bus": "I2C bus number",
+          "i2c_address": "I2C address (e.g. 0x2D)",
+          "battery_type": "Battery type",
+          "battery_capacity_mah": "Capacity per cell (mAh)",
+          "cells_count": "Number of cells",
+          "low_battery_threshold": "Low battery threshold (%)",
+          "scan_interval": "Polling interval (seconds)",
+          "use_mock": "Use simulated data (development)"
+        }
+      }
+    },
+    "error": {
+      "i2c_bus_not_found": "I2C bus device file not found. Is /dev/i2c-N exposed to Home Assistant?",
+      "permission_denied": "Permission denied when opening the I2C bus. Add the user to the 'i2c' group or run the container with --device=/dev/i2c-N and --privileged (or with the i2c add-on).",
+      "device_not_responding": "No response from the UPS HAT (E) at the given address. Check wiring and that the UPS is powered on.",
+      "invalid_address": "Invalid I2C address. Use a hex value like 0x2D.",
+      "unknown": "Unknown error — check Home Assistant logs."
+    },
+    "abort": {
+      "already_configured": "This UPS HAT (E) is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "UPS HAT (E) options",
+        "data": {
+          "battery_type": "Battery type",
+          "battery_capacity_mah": "Capacity per cell (mAh)",
+          "cells_count": "Number of cells",
+          "low_battery_threshold": "Low battery threshold (%)",
+          "scan_interval": "Polling interval (seconds)",
+          "use_mock": "Use simulated data (development)"
+        }
+      }
+    },
+    "error": {
+      "invalid_value": "Invalid value."
+    }
+  },
+  "selector": {
+    "battery_type": {
+      "options": {
+        "21700": "21700 (5000 mAh)",
+        "18650": "18650 (3000 mAh)",
+        "custom": "Custom"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery_percent": { "name": "Battery" },
+      "battery_voltage": { "name": "Battery voltage" },
+      "battery_current": { "name": "Battery current" },
+      "battery_power": { "name": "Battery power" },
+      "remaining_capacity_wh": { "name": "Remaining capacity" },
+      "remaining_capacity_mah": { "name": "Remaining capacity (mAh)" },
+      "runtime_min": { "name": "Time to empty" },
+      "time_to_full_min": { "name": "Time to full" },
+      "vbus_voltage": { "name": "USB-C voltage" },
+      "vbus_current": { "name": "USB-C current" },
+      "vbus_power": { "name": "USB-C power" },
+      "cell1_voltage": { "name": "Cell 1 voltage" },
+      "cell2_voltage": { "name": "Cell 2 voltage" },
+      "cell3_voltage": { "name": "Cell 3 voltage" },
+      "cell4_voltage": { "name": "Cell 4 voltage" },
+      "status": {
+        "name": "Status",
+        "state": {
+          "idle": "Idle",
+          "charging": "Charging",
+          "fast_charging": "Fast charging",
+          "discharging": "Discharging",
+          "full": "Full"
+        }
+      },
+      "charge_state": {
+        "name": "Charge stage",
+        "state": {
+          "standby": "Standby",
+          "trickle": "Trickle charge",
+          "constant_current": "Constant current",
+          "constant_voltage": "Constant voltage",
+          "pending": "Pending",
+          "full": "Full",
+          "timeout": "Timeout",
+          "unknown": "Unknown"
+        }
+      },
+      "firmware_revision": { "name": "Firmware revision" }
+    },
+    "binary_sensor": {
+      "online": { "name": "AC power" },
+      "charging": { "name": "Charging" },
+      "fast_charging": { "name": "USB-C PD" },
+      "low_battery": { "name": "Low battery" },
+      "bq4050_ok": { "name": "BQ4050 fault" },
+      "ip2368_ok": { "name": "IP2368 fault" }
+    }
+  },
+  "services": {
+    "shutdown": {
+      "name": "Shutdown UPS",
+      "description": "Send the shutdown command to the UPS. The UPS will cut its 5V output 30 seconds later.",
+      "fields": {
+        "entry_id": {
+          "name": "Config entry ID",
+          "description": "ID of the UPS HAT (E) config entry to shut down."
+        }
+      }
+    }
+  }
+}

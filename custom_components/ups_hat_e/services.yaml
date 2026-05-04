@@ -1,0 +1,14 @@
+shutdown:
+  name: Shutdown UPS
+  description: >-
+    Send the shutdown command (write 0x55 to register 0x01) to the UPS HAT (E).
+    The UPS will cut its 5V output ~30 seconds later — make sure the host has
+    finished its OS shutdown by then.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: ID of the UPS HAT (E) config entry to act on.
+      required: true
+      example: "01H..."
+      selector:
+        text:
