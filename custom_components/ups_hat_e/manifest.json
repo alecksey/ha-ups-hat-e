@@ -1,14 +1,14 @@
 {
   "domain": "ups_hat_e",
   "name": "Waveshare UPS HAT (E)",
-  "codeowners": ["@delphiworld"],
+  "codeowners": ["@alecksey"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/delphiworld/hacs-ups-hat-e",
+  "documentation": "https://github.com/alecksey/ha-ups-hat-e",
   "integration_type": "device",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/delphiworld/hacs-ups-hat-e/issues",
+  "issue_tracker": "https://github.com/alecksey/ha-ups-hat-e/issues",
   "loggers": ["custom_components.ups_hat_e"],
   "requirements": ["smbus2>=0.4.2"],
-  "version": "0.1.0"
+  "version": "0.2.0"
 }

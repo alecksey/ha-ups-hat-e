@@ -1,16 +1,40 @@
 # Waveshare UPS HAT (E) — Home Assistant Integration
 
+[![Open your Home Assistant instance and open this repository inside HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=alecksey&repository=ha-ups-hat-e&category=integration)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 ![hass version](https://img.shields.io/badge/HA-2024.6%2B-blue)
+![license](https://img.shields.io/badge/license-MIT-green)
+
+<p align="center">
+  <img src="https://www.waveshare.com/media/catalog/product/cache/1/image/800x800/9df78eab33525d08d6e5fb8d27136e95/u/p/ups-hat-e-3.jpg" alt="Waveshare UPS HAT (E)" width="420">
+</p>
 
 A modern, async Home Assistant custom integration for the
 [Waveshare UPS HAT (E)](https://www.waveshare.com/wiki/UPS_HAT_(E))
-(4×21700 / 4×18650 cells, USB-C PD input, BQ4050 + IP2368 chipset).
-Reads the UPS over I2C and exposes battery voltage / current / power /
-percentage / runtime, USB-C input metrics, per-cell voltages, charge
-stage, fault flags, and AC-power / charging binary sensors.
+(4× 21700 / 18650 cells, USB-C PD input, BQ4050 fuel gauge + IP2368
+charger). Reads the UPS over I2C and exposes battery voltage / current /
+power / percentage / runtime, USB-C input metrics, per-cell voltages,
+charge stage, fault flags, and AC-power / charging binary sensors.
 
 Released under the [**MIT License**](LICENSE).
+
+## Quick install via HACS
+
+1. Click the **Open in HACS** badge above (or copy the link below).
+2. HACS will open the repo dialog — confirm install.
+3. Restart Home Assistant.
+4. Settings → Devices & Services → **Add Integration** → "Waveshare UPS HAT (E)".
+
+[![Open your Home Assistant instance and open this repository inside HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=alecksey&repository=ha-ups-hat-e&category=integration)
+
+If the badge doesn't work, in HACS → Integrations → ⋮ → **Custom
+repositories**, paste `https://github.com/alecksey/ha-ups-hat-e` and
+choose category **Integration**.
+
+### Manual install
+
+Copy `custom_components/ups_hat_e/` to `<config>/custom_components/` and
+restart Home Assistant.
 
 ## References & inspiration
 
@@ -52,87 +76,73 @@ Many thanks to the authors of:
   - Firmware revision (diagnostic, disabled by default).
 - Binary sensors: AC power, charging, USB-C PD active, low battery,
   BQ4050 / IP2368 communication faults.
-- Service `ups_hat_e.shutdown` to issue the UPS-side shutdown sequence
+- Pretty duration formatting: `45m` / `5h 30m` / `1d 2h 15m` (raw
+  minutes still available as an entity attribute).
+- Service `ups_hat_e.shutdown` — issues the UPS-side shutdown sequence
   (write `0x55` to register `0x01`).
 - Translations: English + Ukrainian.
 - Mock driver flag for development on a non-Pi host.
 
-## Installation
+## ⚠️ Prerequisite: I2C must be enabled on the Pi
 
-### Via HACS (recommended)
+Home Assistant runs inside a container, so two things have to be true:
+1. The kernel exposes `/dev/i2c-1`.
+2. The HA Core container has access to it.
 
-1. In HACS → Integrations → ⋮ → **Custom repositories**, add
-   `https://github.com/delphiworld/hacs-ups-hat-e` as type
-   **Integration**.
-2. Install **Waveshare UPS HAT (E)**, then restart Home Assistant.
-3. Go to **Settings → Devices & Services → + Add integration → Waveshare
-   UPS HAT (E)**.
+The easiest path on Home Assistant OS is to use the community
+[**HassOS I2C Configurator**](https://github.com/adamoutler/HassOSConfigurator/tree/main/Pi4EnableI2C)
+add-on:
 
-### Manual
+1. Settings → Add-ons → Add-on Store → ⋮ → **Repositories**.
+2. Add `https://github.com/adamoutler/HassOSConfigurator`.
+3. Install **Pi4EnableI2C** (despite the name, it works on Pi3/4/5).
+4. Start it once. It edits `/boot/config.txt` (`dtparam=i2c_arm=on`),
+   loads `i2c-dev`, and survives reboots.
+5. Reboot the host.
+6. *(Optional)* Uninstall the add-on — its job is done after the first
+   run.
 
-Copy `custom_components/ups_hat_e/` to `<config>/custom_components/` and
-restart Home Assistant.
+After the reboot, `/dev/i2c-1` will appear inside the HA container and
+this integration will be able to open it.
 
-## ⚠️ Container & I2C permissions
+If you're not on HAOS, see the next section.
 
-Home Assistant runs inside a container (HA OS / Supervised / Container /
-Core in venv). Reading `/dev/i2c-*` requires the container to have **(a)
-the device file mounted in** and **(b) read/write access** to it.
-
-### Home Assistant OS (HAOS) on Raspberry Pi
-
-I2C is enabled by default. The Supervisor mounts `/dev/i2c-1` into
-the `homeassistant` container, but `smbus2` still needs root inside the
-container to open it. With HAOS this works out-of-the-box because the
-HA Core container runs as root.
-
-If `/dev/i2c-1` is missing, edit `/boot/config.txt` (or use the
-[i2c-tools add-on](https://github.com/home-assistant/addons-development/tree/master/i2c-tools)
-once for diagnostics):
-
-```ini
-dtparam=i2c_arm=on
-```
-
-…and reboot.
+## I2C access in other HA installs
 
 ### Home Assistant Container (Docker)
 
-The container needs the device passed in and elevated capabilities:
+Pass the device to the container and add the right capabilities:
 
 ```bash
 docker run -d --name homeassistant \
   --restart=unless-stopped \
   --privileged \
-  -e TZ=Europe/Kyiv \
   -v /PATH_TO_YOUR_CONFIG:/config \
-  -v /run/dbus:/run/dbus:ro \
   --device=/dev/i2c-1 \
   --network=host \
   ghcr.io/home-assistant/home-assistant:stable
 ```
 
-If you prefer not to use `--privileged`, the minimum required is the
-device mapping plus `--cap-add=SYS_RAWIO` **and** the host’s `i2c` group
-GID (look it up with `getent group i2c`):
+If you'd rather avoid `--privileged`, the minimum is:
 
 ```bash
 --device=/dev/i2c-1 \
 --cap-add=SYS_RAWIO \
---group-add 998   # whatever GID `i2c` group has on the host
+--group-add 998   # whatever GID the host's `i2c` group has
 ```
+
+(Find the GID with `getent group i2c`.)
 
 ### Home Assistant Supervised
 
-Same as Container — the Supervisor manages device mappings via the
-add-on model, but the **Core container itself** needs `/dev/i2c-1`. If
-you’re seeing `permission_denied` errors during setup, edit
-`/etc/docker/daemon.json` or your override compose file and pass the
-device through.
+The Supervisor manages add-on device mappings, but the **Core
+container** itself still needs `/dev/i2c-1`. If you see
+`permission_denied` during setup, edit `/etc/docker/daemon.json` (or
+your override compose) and pass the device through.
 
 ### Home Assistant Core (venv on Raspberry Pi OS)
 
-The OS user (typically `homeassistant`) must be in the `i2c` group:
+Add the OS user to the `i2c` group:
 
 ```bash
 sudo usermod -aG i2c homeassistant
@@ -147,21 +157,22 @@ sudo i2cdetect -y 1
 # expect to see address 2d in the grid
 ```
 
-If `i2cdetect` doesn't see `0x2D`, Home Assistant won't either — fix the
-hardware or wiring first.
+If `i2cdetect` doesn't see `0x2D`, Home Assistant won't either — fix
+the wiring or the OS-level config first.
 
 ## Sensors exposed
 
 | Sensor | Unit | Class | Notes |
 | --- | --- | --- | --- |
-| Battery | % | `battery` | Battery state-of-charge from the BQ4050. |
+| Battery | % | `battery` | State-of-charge from the BQ4050. |
 | Battery voltage | V | `voltage` | Pack voltage (4S). |
 | Battery current | A | `current` | Signed: + charging, − discharging. |
 | Battery power | W | `power` | Computed (V × I). |
 | Remaining capacity | Wh | `energy_storage` | Computed (mAh × V). |
 | Remaining capacity (mAh) | mAh | – | Raw from BQ4050. |
-| Time to empty | min | `duration` | Available when discharging. |
-| Time to full | min | `duration` | Available when charging. |
+| Time to empty | – | – | Pretty: `45m` / `5h 30m` / `1d 2h`. Raw minutes in `raw_minutes` attr. |
+| Time to full | – | – | Same format, while charging. |
+| Time to empty / full (minutes) | min | `duration` | Numeric, disabled by default — enable for graphs. |
 | USB-C voltage / current / power | V / mA / W | – | From IP2368. |
 | Cell N voltage (×4) | V | `voltage` | Diagnostic. |
 | Status | – | `enum` | Composite: `idle`/`charging`/`fast_charging`/`discharging`/`full`. |
@@ -210,19 +221,23 @@ action:
 
 ## Troubleshooting
 
-- **`permission_denied`** during setup → see the container section
-  above. Try `sudo i2cdetect -y 1` on the host first.
+- **`permission_denied`** during setup → see the I2C-access section
+  above. Try `sudo i2cdetect -y 1` on the host first. On HAOS, install
+  the [HassOS I2C Configurator add-on](https://github.com/adamoutler/HassOSConfigurator/tree/main/Pi4EnableI2C).
 - **`device_not_responding`** → wrong address, the UPS isn't powered, or
   the chip is held in reset. Verify with `i2cdetect`.
 - **Battery percentage / runtime stuck or weird** → the BQ4050 needs a
   full charge/discharge cycle (or two) to calibrate. This is normal.
 - **Want to test on a laptop?** Toggle the *Use simulated data* switch
-  in setup or options. The integration will use a mock driver that
-  generates plausible values.
+  in setup or options. The integration uses a mock driver that produces
+  plausible values for development.
+- **OptionsFlow throws 500 Internal Server Error** → make sure you're on
+  the latest version (≥ 0.1.1); HA 2024.11+ requires a different
+  options-flow signature than older releases.
 
 ## Development
 
-The driver layer is pure Python (no Home Assistant imports) so it can be
+The driver layer is pure Python (no Home Assistant imports) and can be
 exercised in isolation:
 
 ```python
@@ -239,12 +254,9 @@ Pull requests welcome.
 
 ## License
 
-This project is licensed under the **MIT License** — see the
-[`LICENSE`](LICENSE) file for the full text. In short: do whatever you
-want with the code, just keep the copyright + license notice.
+MIT — see the [`LICENSE`](LICENSE) file for the full text.
 
 ## Credits
 
 See the [References & inspiration](#references--inspiration) section
-above for the projects that informed this integration. Issues and pull
-requests are welcome.
+above for the projects that informed this integration.

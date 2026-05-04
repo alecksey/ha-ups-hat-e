@@ -16,3 +16,9 @@ venv/
 # One-off bootstrap helpers — not part of the integration
 push-to-github.ps1
 push-to-github.sh
+
+# Stale empty files left from sandbox write-permission tests on Windows mount
+.bigtest
+.writetest
+custom_components/ups_hat_e/.bigtest
+custom_components/ups_hat_e/.writetest
