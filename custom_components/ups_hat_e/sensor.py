@@ -39,8 +39,10 @@ from .const import (
     DATA_REMAINING_CAPACITY_MAH,
     DATA_REMAINING_CAPACITY_WH,
     DATA_RUNTIME_MIN,
+    DATA_RUNTIME_PRETTY,
     DATA_STATUS,
     DATA_TIME_TO_FULL_MIN,
+    DATA_TIME_TO_FULL_PRETTY,
     DATA_VBUS_CURRENT,
     DATA_VBUS_POWER,
     DATA_VBUS_VOLTAGE,
@@ -54,11 +56,12 @@ from .entity import UpsHatEEntity
 class UpsHatESensorDescription(SensorEntityDescription):
     """Describes a UPS HAT (E) sensor."""
 
-    value_fn: Callable[[dict[str, Any]], Any]
+    value_fn: Callable[[dict], Any]
+    extra_attrs_fn: Callable[[dict], dict] | None = None
 
 
 SENSORS: tuple[UpsHatESensorDescription, ...] = (
-    # Battery primary
+    # ---- Battery primary ------------------------------------------------
     UpsHatESensorDescription(
         key="battery_percent",
         translation_key="battery_percent",
@@ -112,23 +115,46 @@ SENSORS: tuple[UpsHatESensorDescription, ...] = (
         suggested_display_precision=0,
         value_fn=lambda d: d.get(DATA_REMAINING_CAPACITY_MAH),
     ),
+    # ---- Pretty duration sensors (default UI) ---------------------------
+    # Render as "45m" / "5h 30m" / "2d 5h 30m". Raw minutes go in the
+    # ``raw_minutes`` attribute for templates / graphs.
+    UpsHatESensorDescription(
+        key="runtime",
+        translation_key="runtime",
+        icon="mdi:battery-clock",
+        value_fn=lambda d: d.get(DATA_RUNTIME_PRETTY),
+        extra_attrs_fn=lambda d: {"raw_minutes": d.get(DATA_RUNTIME_MIN)},
+    ),
+    UpsHatESensorDescription(
+        key="time_to_full",
+        translation_key="time_to_full",
+        icon="mdi:battery-clock-outline",
+        value_fn=lambda d: d.get(DATA_TIME_TO_FULL_PRETTY),
+        extra_attrs_fn=lambda d: {"raw_minutes": d.get(DATA_TIME_TO_FULL_MIN)},
+    ),
+    # Raw numeric versions — disabled by default but available for graphs
+    # and statistics (state_class MEASUREMENT).
     UpsHatESensorDescription(
         key="runtime_min",
         translation_key="runtime_min",
         device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTime.MINUTES,
         suggested_display_precision=0,
+        entity_registry_enabled_default=False,
         value_fn=lambda d: d.get(DATA_RUNTIME_MIN),
     ),
     UpsHatESensorDescription(
         key="time_to_full_min",
         translation_key="time_to_full_min",
         device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTime.MINUTES,
         suggested_display_precision=0,
+        entity_registry_enabled_default=False,
         value_fn=lambda d: d.get(DATA_TIME_TO_FULL_MIN),
     ),
-    # USB-C input
+    # ---- USB-C input ----------------------------------------------------
     UpsHatESensorDescription(
         key="vbus_voltage",
         translation_key="vbus_voltage",
@@ -156,7 +182,7 @@ SENSORS: tuple[UpsHatESensorDescription, ...] = (
         suggested_display_precision=2,
         value_fn=lambda d: d.get(DATA_VBUS_POWER),
     ),
-    # Cell voltages (diagnostic - useful but not primary)
+    # ---- Per-cell voltages (diagnostic) --------------------------------
     UpsHatESensorDescription(
         key="cell1_voltage",
         translation_key="cell1_voltage",
@@ -197,7 +223,7 @@ SENSORS: tuple[UpsHatESensorDescription, ...] = (
         suggested_display_precision=3,
         value_fn=lambda d: d.get(DATA_CELL4_VOLTAGE),
     ),
-    # Status (textual)
+    # ---- Status (textual) ----------------------------------------------
     UpsHatESensorDescription(
         key="status",
         translation_key="status",
@@ -275,3 +301,12 @@ class UpsHatESensor(UpsHatEEntity, SensorEntity):
         if not self.coordinator.data:
             return None
         return self.entity_description.value_fn(self.coordinator.data)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        if not self.coordinator.data:
+            return None
+        if self.entity_description.extra_attrs_fn is None:
+            return None
+        attrs = self.entity_description.extra_attrs_fn(self.coordinator.data)
+        return {k: v for k, v in attrs.items() if v is not None} or None

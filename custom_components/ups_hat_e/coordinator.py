@@ -30,8 +30,10 @@ from .const import (
     DATA_REMAINING_CAPACITY_MAH,
     DATA_REMAINING_CAPACITY_WH,
     DATA_RUNTIME_MIN,
+    DATA_RUNTIME_PRETTY,
     DATA_STATUS,
     DATA_TIME_TO_FULL_MIN,
+    DATA_TIME_TO_FULL_PRETTY,
     DATA_VBUS_CURRENT,
     DATA_VBUS_POWER,
     DATA_VBUS_VOLTAGE,
@@ -47,20 +49,55 @@ from .driver import UpsHatDriver
 _LOGGER = logging.getLogger(__name__)
 
 
-class UpsHatECoordinator(DataUpdateCoordinator[dict[str, Any]]):
+def format_duration_minutes(minutes):
+    """Render a duration in minutes as a compact, dynamic human string.
+
+    Output rules:
+    - ``None``           -> ``None``
+    - ``< 60 min``       -> ``"45m"``
+    - ``< 24h``          -> ``"5h 30m"`` / ``"10h"``
+    - ``>= 24h``         -> ``"2d"`` / ``"1d 1h 30m"`` / ``"1d 0h 1m"``
+
+    Trailing zero parts are dropped, but a middle zero part is kept
+    (e.g. ``1d 0h 1m``) to make the value unambiguous.
+    """
+    if minutes is None:
+        return None
+    try:
+        total = int(minutes)
+    except (TypeError, ValueError):
+        return None
+    if total < 0:
+        total = 0
+    if total < 60:
+        return f"{total}m"
+
+    days, rem = divmod(total, 1440)
+    hours, mins = divmod(rem, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours or (days and mins):
+        parts.append(f"{hours}h")
+    if mins:
+        parts.append(f"{mins}m")
+    return " ".join(parts) if parts else "0m"
+
+
+class UpsHatECoordinator(DataUpdateCoordinator):
     """Polls the UPS HAT (E) and exposes a normalized data dict."""
 
     def __init__(
         self,
-        hass: HomeAssistant,
+        hass,
         *,
-        driver: UpsHatDriver,
-        scan_interval: int,
-        battery_capacity_mah_per_cell: int,
-        cells_count: int,
-        low_battery_threshold: int,
-        entry_id: str,
-    ) -> None:
+        driver,
+        scan_interval,
+        battery_capacity_mah_per_cell,
+        cells_count,
+        low_battery_threshold,
+        entry_id,
+    ):
         super().__init__(
             hass,
             _LOGGER,
@@ -74,27 +111,23 @@ class UpsHatECoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._entry_id = entry_id
 
     @property
-    def driver(self) -> UpsHatDriver:
+    def driver(self):
         return self._driver
 
     @property
-    def total_capacity_mah(self) -> int:
-        # 21700 / 18650 cells in this UPS are wired 2S2P -> nominal capacity
-        # is `capacity_per_cell * (cells_count / 2)` because two parallel
-        # strings double the capacity while two series cells just add voltage.
-        # Default 4 cells -> ×2 capacity.
+    def total_capacity_mah(self):
         if self._cells_count <= 0:
             return self._battery_capacity_mah_per_cell
         parallel = max(1, self._cells_count // 2)
         return self._battery_capacity_mah_per_cell * parallel
 
-    async def _async_update_data(self) -> dict[str, Any]:
+    async def _async_update_data(self):
         try:
             return await self.hass.async_add_executor_job(self._read_blocking)
-        except Exception as err:  # noqa: BLE001 - surface as UpdateFailed
+        except Exception as err:
             raise UpdateFailed(f"UPS HAT (E) read failed: {err}") from err
 
-    def _read_blocking(self) -> dict[str, Any]:
+    def _read_blocking(self):
         drv = self._driver
         drv.open()
 
@@ -105,9 +138,6 @@ class UpsHatECoordinator(DataUpdateCoordinator[dict[str, Any]]):
         cells = drv.read_cells()
         firmware = drv.read_firmware_revision()
 
-        # Derive a friendly status. We bias charging/fast-charging toward the
-        # bus state because some BQ4050 firmwares report `charge_state == full`
-        # only after a calibration pass.
         if charging.fast_charging:
             status = STATE_FAST_CHARGING
         elif charging.charging:
@@ -129,10 +159,6 @@ class UpsHatECoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         low_battery = battery.percent < self._low_battery_threshold
 
-        # `runtime_min` only meaningful when discharging, `time_to_full_min`
-        # only when charging — clamp the other to None for cleaner UI.
-        runtime_min: int | None
-        time_to_full_min: int | None
         if battery.current_ma < 0:
             runtime_min = battery.runtime_min if battery.runtime_min > 0 else None
             time_to_full_min = None
@@ -145,12 +171,10 @@ class UpsHatECoordinator(DataUpdateCoordinator[dict[str, Any]]):
             runtime_min = None
             time_to_full_min = None
 
-        data: dict[str, Any] = {
-            # USB-C input
+        return {
             DATA_VBUS_VOLTAGE: round(vbus.voltage_mv / 1000.0, 3),
-            DATA_VBUS_CURRENT: vbus.current_ma,  # mA
+            DATA_VBUS_CURRENT: vbus.current_ma,
             DATA_VBUS_POWER: round(vbus.power_mw / 1000.0, 3),
-            # Battery
             DATA_BATTERY_VOLTAGE: round(battery_voltage_v, 3),
             DATA_BATTERY_CURRENT: round(battery_current_a, 3),
             DATA_BATTERY_POWER: battery_power_w,
@@ -159,12 +183,12 @@ class UpsHatECoordinator(DataUpdateCoordinator[dict[str, Any]]):
             DATA_REMAINING_CAPACITY_WH: remaining_capacity_wh,
             DATA_RUNTIME_MIN: runtime_min,
             DATA_TIME_TO_FULL_MIN: time_to_full_min,
-            # Cells (V)
+            DATA_RUNTIME_PRETTY: format_duration_minutes(runtime_min),
+            DATA_TIME_TO_FULL_PRETTY: format_duration_minutes(time_to_full_min),
             DATA_CELL1_VOLTAGE: round(cells.cell1_mv / 1000.0, 3),
             DATA_CELL2_VOLTAGE: round(cells.cell2_mv / 1000.0, 3),
             DATA_CELL3_VOLTAGE: round(cells.cell3_mv / 1000.0, 3),
             DATA_CELL4_VOLTAGE: round(cells.cell4_mv / 1000.0, 3),
-            # Status
             DATA_CHARGE_STATE: CHARGE_STATE_NAMES.get(
                 charging.charge_state, "unknown"
             ),
@@ -177,4 +201,3 @@ class UpsHatECoordinator(DataUpdateCoordinator[dict[str, Any]]):
             DATA_IP2368_OK: comm.ip2368_ok,
             DATA_FIRMWARE_REVISION: f"0x{firmware:02X}",
         }
-        return data
