@@ -48,24 +48,108 @@ from .driver import create_driver
 _LOGGER = logging.getLogger(__name__)
 
 
-def _parse_address(value: Any) -> int:
+def _parse_address(value):
     """Accept ``0x2D`` / ``45`` / ``0X2d`` / ``2D``."""
     if isinstance(value, int):
         return value
     text = str(value).strip()
     if not text:
         raise ValueError("Empty I2C address")
-    base = 16 if text.lower().startswith("0x") else (16 if any(c in text.lower() for c in "abcdef") else 10)
-    return int(text, base)
+    lower = text.lower()
+    if lower.startswith("0x"):
+        return int(text, 16)
+    if any(c in lower for c in "abcdef"):
+        return int(text, 16)
+    return int(text, 10)
 
 
-def _format_address(value: int | str) -> str:
+def _format_address(value):
     addr = _parse_address(value)
     return f"0x{addr:02X}"
 
 
-def _battery_type_options() -> list[dict[str, str]]:
+def _battery_type_options():
     return [{"value": k, "label": v["label"]} for k, v in BATTERY_TYPES.items()]
+
+
+def _common_schema(defaults, *, include_user_only_fields):
+    """Build the schema shared by config and options flows.
+
+    ``include_user_only_fields=True`` adds the fields that only make sense
+    in the initial setup (name + bus + address).
+    """
+    fields = {}
+
+    if include_user_only_fields:
+        fields[vol.Required(
+            CONF_NAME, default=defaults.get(CONF_NAME, DEFAULT_NAME)
+        )] = str
+        fields[vol.Required(
+            CONF_I2C_BUS, default=defaults.get(CONF_I2C_BUS, DEFAULT_I2C_BUS),
+        )] = NumberSelector(
+            NumberSelectorConfig(min=0, max=20, step=1, mode=NumberSelectorMode.BOX)
+        )
+        fields[vol.Required(
+            CONF_I2C_ADDRESS,
+            default=_format_address(
+                defaults.get(CONF_I2C_ADDRESS, DEFAULT_I2C_ADDRESS)
+            ),
+        )] = str
+
+    fields[vol.Required(
+        CONF_BATTERY_TYPE,
+        default=defaults.get(CONF_BATTERY_TYPE, DEFAULT_BATTERY_TYPE),
+    )] = SelectSelector(
+        SelectSelectorConfig(
+            options=_battery_type_options(),
+            mode=SelectSelectorMode.DROPDOWN,
+            translation_key="battery_type",
+        )
+    )
+    fields[vol.Required(
+        CONF_BATTERY_CAPACITY_MAH,
+        default=defaults.get(
+            CONF_BATTERY_CAPACITY_MAH, DEFAULT_BATTERY_CAPACITY_MAH
+        ),
+    )] = NumberSelector(
+        NumberSelectorConfig(
+            min=500, max=10000, step=100,
+            unit_of_measurement="mAh",
+            mode=NumberSelectorMode.BOX,
+        )
+    )
+    fields[vol.Required(
+        CONF_CELLS_COUNT,
+        default=defaults.get(CONF_CELLS_COUNT, DEFAULT_CELLS_COUNT),
+    )] = NumberSelector(
+        NumberSelectorConfig(min=1, max=4, step=1, mode=NumberSelectorMode.BOX)
+    )
+    fields[vol.Required(
+        CONF_LOW_BATTERY_THRESHOLD,
+        default=defaults.get(
+            CONF_LOW_BATTERY_THRESHOLD, DEFAULT_LOW_BATTERY_THRESHOLD
+        ),
+    )] = NumberSelector(
+        NumberSelectorConfig(
+            min=1, max=99, step=1,
+            unit_of_measurement="%",
+            mode=NumberSelectorMode.SLIDER,
+        )
+    )
+    fields[vol.Required(
+        CONF_SCAN_INTERVAL,
+        default=defaults.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+    )] = NumberSelector(
+        NumberSelectorConfig(
+            min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL, step=1,
+            unit_of_measurement="s",
+            mode=NumberSelectorMode.BOX,
+        )
+    )
+    fields[vol.Optional(
+        CONF_USE_MOCK, default=defaults.get(CONF_USE_MOCK, False)
+    )] = bool
+    return vol.Schema(fields)
 
 
 class UpsHatEConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -73,10 +157,8 @@ class UpsHatEConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        errors: dict[str, str] = {}
+    async def async_step_user(self, user_input=None):
+        errors = {}
         if user_input is not None:
             try:
                 address = _parse_address(user_input[CONF_I2C_ADDRESS])
@@ -85,11 +167,8 @@ class UpsHatEConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 bus = int(user_input[CONF_I2C_BUS])
                 use_mock = bool(user_input.get(CONF_USE_MOCK, False))
 
-                # Probe the bus unless mock is selected.
                 if not use_mock:
-                    await self.hass.async_add_executor_job(
-                        _probe_bus, bus, address
-                    )
+                    await self.hass.async_add_executor_job(_probe_bus, bus, address)
             except FileNotFoundError:
                 errors[CONF_I2C_BUS] = "i2c_bus_not_found"
             except PermissionError:
@@ -99,13 +178,11 @@ class UpsHatEConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "device_not_responding"
             except ValueError:
                 errors[CONF_I2C_ADDRESS] = "invalid_address"
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.exception("Unexpected error during config flow probe")
                 errors["base"] = "unknown"
 
             if not errors:
-                # unique_id ties an entry to a (bus, address) pair so the
-                # user can't add the same device twice.
                 uid = f"{bus}:0x{address:02X}"
                 await self.async_set_unique_id(uid)
                 self._abort_if_unique_id_configured()
@@ -137,124 +214,43 @@ class UpsHatEConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
                     CONF_USE_MOCK: use_mock,
                 }
-                return self.async_create_entry(
-                    title=data[CONF_NAME], data=data
-                )
+                return self.async_create_entry(title=data[CONF_NAME], data=data)
 
         defaults = user_input or {}
-        schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_NAME, default=defaults.get(CONF_NAME, DEFAULT_NAME)
-                ): str,
-                vol.Required(
-                    CONF_I2C_BUS,
-                    default=defaults.get(CONF_I2C_BUS, DEFAULT_I2C_BUS),
-                ): NumberSelector(
-                    NumberSelectorConfig(min=0, max=20, step=1, mode=NumberSelectorMode.BOX)
-                ),
-                vol.Required(
-                    CONF_I2C_ADDRESS,
-                    default=_format_address(
-                        defaults.get(CONF_I2C_ADDRESS, DEFAULT_I2C_ADDRESS)
-                    ),
-                ): str,
-                vol.Required(
-                    CONF_BATTERY_TYPE,
-                    default=defaults.get(CONF_BATTERY_TYPE, DEFAULT_BATTERY_TYPE),
-                ): SelectSelector(
-                    SelectSelectorConfig(
-                        options=_battery_type_options(),
-                        mode=SelectSelectorMode.DROPDOWN,
-                        translation_key="battery_type",
-                    )
-                ),
-                vol.Required(
-                    CONF_BATTERY_CAPACITY_MAH,
-                    default=defaults.get(
-                        CONF_BATTERY_CAPACITY_MAH, DEFAULT_BATTERY_CAPACITY_MAH
-                    ),
-                ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=500,
-                        max=10000,
-                        step=100,
-                        unit_of_measurement="mAh",
-                        mode=NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_CELLS_COUNT,
-                    default=defaults.get(CONF_CELLS_COUNT, DEFAULT_CELLS_COUNT),
-                ): NumberSelector(
-                    NumberSelectorConfig(min=1, max=4, step=1, mode=NumberSelectorMode.BOX)
-                ),
-                vol.Required(
-                    CONF_LOW_BATTERY_THRESHOLD,
-                    default=defaults.get(
-                        CONF_LOW_BATTERY_THRESHOLD, DEFAULT_LOW_BATTERY_THRESHOLD
-                    ),
-                ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=1,
-                        max=99,
-                        step=1,
-                        unit_of_measurement="%",
-                        mode=NumberSelectorMode.SLIDER,
-                    )
-                ),
-                vol.Required(
-                    CONF_SCAN_INTERVAL,
-                    default=defaults.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
-                ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=MIN_SCAN_INTERVAL,
-                        max=MAX_SCAN_INTERVAL,
-                        step=1,
-                        unit_of_measurement="s",
-                        mode=NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Optional(
-                    CONF_USE_MOCK,
-                    default=defaults.get(CONF_USE_MOCK, False),
-                ): bool,
-            }
-        )
         return self.async_show_form(
-            step_id="user", data_schema=schema, errors=errors
+            step_id="user",
+            data_schema=_common_schema(defaults, include_user_only_fields=True),
+            errors=errors,
         )
 
     @staticmethod
     @callback
-    def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
-    ) -> "UpsHatEOptionsFlow":
-        return UpsHatEOptionsFlow(config_entry)
+    def async_get_options_flow(config_entry):
+        return UpsHatEOptionsFlow()
 
 
 class UpsHatEOptionsFlow(config_entries.OptionsFlow):
-    """Options flow — tweak runtime settings without recreating the entry."""
+    """Options flow.
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        # ``self.config_entry`` is provided by HA in newer versions; assigning
-        # explicitly stays compatible with 2024.x.
-        self.config_entry = config_entry
+    HA 2024.11+ assigns ``self.config_entry`` automatically via a read-only
+    descriptor — assigning it ourselves causes 500 Internal Server Error.
+    The framework calls ``async_get_options_flow(config_entry)`` and wires the
+    entry up before our first step runs, so we just rely on
+    ``self.config_entry``.
+    """
 
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        current = {**self.config_entry.data, **self.config_entry.options}
-        errors: dict[str, str] = {}
+    async def async_step_init(self, user_input=None):
+        entry = self.config_entry
+        current = {**entry.data, **(entry.options or {})}
+        errors = {}
 
         if user_input is not None:
             try:
-                battery_type = user_input.get(
-                    CONF_BATTERY_TYPE,
-                    current.get(CONF_BATTERY_TYPE, DEFAULT_BATTERY_TYPE),
-                )
                 data = {
-                    CONF_BATTERY_TYPE: battery_type,
+                    CONF_BATTERY_TYPE: user_input.get(
+                        CONF_BATTERY_TYPE,
+                        current.get(CONF_BATTERY_TYPE, DEFAULT_BATTERY_TYPE),
+                    ),
                     CONF_BATTERY_CAPACITY_MAH: int(
                         user_input.get(
                             CONF_BATTERY_CAPACITY_MAH,
@@ -282,9 +278,7 @@ class UpsHatEOptionsFlow(config_entries.OptionsFlow):
                     CONF_SCAN_INTERVAL: int(
                         user_input.get(
                             CONF_SCAN_INTERVAL,
-                            current.get(
-                                CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
-                            ),
+                            current.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
                         )
                     ),
                     CONF_USE_MOCK: bool(
@@ -295,85 +289,19 @@ class UpsHatEOptionsFlow(config_entries.OptionsFlow):
                     ),
                 }
                 return self.async_create_entry(title="", data=data)
-            except ValueError:
+            except (TypeError, ValueError):
+                _LOGGER.exception("Invalid options input")
                 errors["base"] = "invalid_value"
 
-        schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_BATTERY_TYPE,
-                    default=current.get(CONF_BATTERY_TYPE, DEFAULT_BATTERY_TYPE),
-                ): SelectSelector(
-                    SelectSelectorConfig(
-                        options=_battery_type_options(),
-                        mode=SelectSelectorMode.DROPDOWN,
-                        translation_key="battery_type",
-                    )
-                ),
-                vol.Required(
-                    CONF_BATTERY_CAPACITY_MAH,
-                    default=current.get(
-                        CONF_BATTERY_CAPACITY_MAH, DEFAULT_BATTERY_CAPACITY_MAH
-                    ),
-                ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=500,
-                        max=10000,
-                        step=100,
-                        unit_of_measurement="mAh",
-                        mode=NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_CELLS_COUNT,
-                    default=current.get(CONF_CELLS_COUNT, DEFAULT_CELLS_COUNT),
-                ): NumberSelector(
-                    NumberSelectorConfig(min=1, max=4, step=1, mode=NumberSelectorMode.BOX)
-                ),
-                vol.Required(
-                    CONF_LOW_BATTERY_THRESHOLD,
-                    default=current.get(
-                        CONF_LOW_BATTERY_THRESHOLD, DEFAULT_LOW_BATTERY_THRESHOLD
-                    ),
-                ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=1,
-                        max=99,
-                        step=1,
-                        unit_of_measurement="%",
-                        mode=NumberSelectorMode.SLIDER,
-                    )
-                ),
-                vol.Required(
-                    CONF_SCAN_INTERVAL,
-                    default=current.get(
-                        CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
-                    ),
-                ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=MIN_SCAN_INTERVAL,
-                        max=MAX_SCAN_INTERVAL,
-                        step=1,
-                        unit_of_measurement="s",
-                        mode=NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Optional(
-                    CONF_USE_MOCK,
-                    default=current.get(CONF_USE_MOCK, False),
-                ): bool,
-            }
-        )
         return self.async_show_form(
-            step_id="init", data_schema=schema, errors=errors
+            step_id="init",
+            data_schema=_common_schema(current, include_user_only_fields=False),
+            errors=errors,
         )
 
 
-def _probe_bus(bus: int, address: int) -> None:
-    """Open the bus and read register 0x50 (firmware) to verify communication.
-
-    Runs in the executor — never block the event loop.
-    """
+def _probe_bus(bus, address):
+    """Open the bus and read register 0x50 (firmware) to verify communication."""
     device_path = f"/dev/i2c-{bus}"
     if not os.path.exists(device_path):
         raise FileNotFoundError(f"{device_path} does not exist")
@@ -381,10 +309,9 @@ def _probe_bus(bus: int, address: int) -> None:
     driver = create_driver(bus=bus, address=address, use_mock=False)
     try:
         driver.open()
-        # Reading firmware revision is the cheapest "is the chip alive" probe.
         driver.read_firmware_revision()
     finally:
         try:
             driver.close()
-        except Exception:  # pragma: no cover
+        except Exception:
             pass
